@@ -32,14 +32,28 @@ class CreateOrderService {
 
   public async execute({ customer_id, products }: IRequest): Promise<Order> {
     const customer = await this.customersRepository.findById(customer_id);
+
+    if (!customer) {
+      throw new AppError('Customer not found');
+    }
+
     const productsFound = await this.productsRepository.findAllById(products);
 
-    const productsOrder = productsFound.map(({ id, price }) => {
-      const quantity = products.find(p => p.id === id)?.quantity || 0;
+    const productsOrder = products.map(product => {
+      const productFind = productsFound.find(p => p.id === product.id);
+      if (!productFind) {
+        throw new AppError(`Product ${product.id} not found`);
+      }
+
+      if (product.quantity > productFind.quantity) {
+        throw new AppError('Quantity greater than stock');
+      }
+
       return {
-        product_id: id,
-        quantity,
-        price,
+        product_id: product.id,
+        quantity: product.quantity,
+        price: productFind.price,
+        stock: productFind.quantity - product.quantity,
       };
     });
 
@@ -47,6 +61,13 @@ class CreateOrderService {
       customer,
       products: productsOrder,
     });
+
+    await this.productsRepository.updateQuantity(
+      productsOrder.map(product => ({
+        id: product.product_id,
+        quantity: product.stock,
+      })),
+    );
 
     return order;
   }
